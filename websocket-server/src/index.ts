@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
 import express from "express";
+import {createClient} from "redis"
 
 const app = express();
 
@@ -9,6 +10,7 @@ interface Message {
     userId : string;
     problemId? : string;
     status? : string;
+    type : string
 }
 
 interface UserId {
@@ -17,36 +19,48 @@ interface UserId {
 
 const wss = new WebSocketServer({ server: httpServer });
 
+const client = createClient({
+    // pubsub url
+})
+
 let allUsersId : string[] = [];
 
 
-wss.on("connection", (ws) => {
+wss.on("connection", async (ws) => {
+   client.subscribe("problem_done", () => {
+         console.log("Subscribed to the problem_done channel")
+   });
     ws.on("message", (message: Message, isBinary) => {
-        const data:Message = JSON.parse(message.toString());
-        console.log(typeof data)
-        const userPresent = allUsersId.find((userId) =>  userId === data.userId)
+        const data:Message = JSON.parse(message.toString()); 
+        if(data.type === "client"){
+            const userPresent = allUsersId.find((userId) =>  userId === data.userId)
+            if(userPresent){
+                allUsersId.map((userid: string) => {
+                    if(userid !== data.userId){
+                        allUsersId.push(...allUsersId, data.userId);
+                        ws.send("Received User Id")
+                    }
+                })
+            } 
+        } 
 
-        
-        if(userPresent){
-            console.log("There i am")
-            allUsersId.map((userid: string) => {
-                console.log(userid === data.userId)
-                console.log(userid);
-                console.log(data.userId)
-                if(userid === data.userId){
-                    console.log("here")
-                   return  ws.send(JSON.stringify(data), {binary : isBinary})
+        if(data.type === "server"){
+            allUsersId.map((userId : string) => {
+                if(data.userId === userId){
+                    ws.send(JSON.stringify(data))
                 }
-            });
-        } else {
-            allUsersId.push(...allUsersId, data.userId);
-            ws.send("Received User Id")
+            })
         }
-        
-
-        ws.send("Send The Message")
-
-        
-console.log(allUsersId)
+        console.log(allUsersId)
     })
-})
+});
+
+
+
+async function startPubSubClient(){
+    await client.connect();
+    console.log("Redis WebSocket Client is Connected");
+}
+
+
+startPubSubClient()
